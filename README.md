@@ -13,6 +13,9 @@ Get the transaction recovery reason from the transaction hash of Ethernet Square
 **At present, only ethers library is supported, web3 library is not supported, And the network only supports `Goerli` networks of Arbitrum, Optimism and Ethereum. if necessary, you can put forward comments, I will update it immediately.**
 
 ###### Use NetworkName
+```js
+npm i revert-reason
+```
 
 **This method does not support Arbitrum and Optimism,only Ethereum**
 
