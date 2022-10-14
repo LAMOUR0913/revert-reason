@@ -9,11 +9,12 @@
     "url": "git://github.com/LAMOUR0913/revert-reason.git"
   },
   "dependencies": {
-    "scrypt-js": "^2.0.4",
+    "scrypt-js": "^3.0.1",
     "setimmediate": "^1.0.4",
     "hash.js": "^1.1.3",
     "uuid": "^2.0.1",
-    "ethers": "^4.0.49"
+    "ethers": "^5.7.1",
+    "web3-core":"^1.8.0"
   },
   "devDependencies": {},
   "scripts": {

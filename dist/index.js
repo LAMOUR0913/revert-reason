@@ -10,21 +10,36 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getRevertReason = void 0;
+/*
+ * @Author: changsheng 2642799676@qq.com
+ * @Date: 2022-10-11 16:04:13
+ * @LastEditors: changsheng 2642799676@qq.com
+ * @LastEditTime: 2022-10-13 18:01:04
+ * @FilePath: /revert-reason/index.ts
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 const ethers_1 = require("ethers");
+const network_1 = require("./entities/network");
 /**
  * Get the revert reason from just a transaction hash
- * @param {string} txHash - Hash of an Ethereum transaction
- * @param {string} network - Ethereum network name（Currently only supports Ethereum network.If it is a network on Arbitrum or Optimism or Polygon, please use customProvider）
- * @param {*} customProvider - Custom provider (Only ethers and web3 providers are supported at this time)
+ * @param {TransactionHash} TransactionHash - Hash of an Ethereum transaction
+ * @param {NetworkOrProvider} NetworkOrProvider
  */
-function getRevertReason(txHash, network = undefined, customProvider = undefined) {
+function getRevertReason(TransactionHash, NetworkOrProvider) {
     return __awaiter(this, void 0, void 0, function* () {
-        ({ network } = normalizeInput(network));
-        const provider = yield validateInputPreProvider(txHash, network, customProvider);
+        const provider = yield validateInputPreProvider(TransactionHash, NetworkOrProvider);
         try {
-            const tx = yield provider.getTransaction(txHash);
-            const code = yield getCode(tx, provider);
-            return decodeMessage(code);
+            const TransactionReceipt = yield provider.getTransactionReceipt(TransactionHash);
+            let decode;
+            if (TransactionReceipt.status !== 0) {
+                decode = "success";
+            }
+            else {
+                const TransactionResponse = yield provider.getTransaction(TransactionHash);
+                const code = yield getCode(TransactionResponse, provider);
+                decode = decodeMessage(code);
+            }
+            return processResult(decode);
         }
         catch (err) {
             throw new Error("Unable to decode revert reason.");
@@ -32,56 +47,102 @@ function getRevertReason(txHash, network = undefined, customProvider = undefined
     });
 }
 exports.getRevertReason = getRevertReason;
-function normalizeInput(network) {
-    return {
-        network: network !== undefined ? network.toLowerCase() : undefined,
-    };
-}
-function validateInputPreProvider(txHash, network, customProvider) {
+function validateInputPreProvider(txHash, NetworkOrProvider) {
     return __awaiter(this, void 0, void 0, function* () {
         // Only accept a valid txHash
         if (!/^0x([A-Fa-f0-9]{64})$/.test(txHash) ||
             txHash.substring(0, 2) !== "0x") {
             throw new Error("Invalid transaction hash");
         }
-        if (network === undefined && customProvider === undefined) {
+        if (NetworkOrProvider.Network && NetworkOrProvider.CustomProvider) {
             throw new Error("Please provide a network or customize customProvider");
         }
-        let provider = undefined;
-        if (network !== undefined) {
-            // mainnet,goerli
-            const networks = ["mainnet", "goerli"];
-            if (!networks.indexOf(network)) {
+        if (NetworkOrProvider.Network) {
+            NetworkOrProvider.Network = NetworkOrProvider.Network.toLowerCase();
+            if (!network_1.SupportNetworks.indexOf(NetworkOrProvider.Network)) {
                 throw new Error("Not a valid network");
             }
-            provider = ethers_1.ethers.getDefaultProvider(network);
+            NetworkOrProvider.CustomProvider = ethers_1.ethers.getDefaultProvider(NetworkOrProvider.Network);
         }
-        else {
-            // web3
-            if (customProvider.version) {
-                provider = new ethers_1.ethers.providers.Web3Provider(customProvider.currentProvider);
-            }
-        }
-        return customProvider || provider;
+        // Todo support Web3
+        // if (NetworkOrProvider.Network) {
+        //   if (!SupportNetworks.indexOf(NetworkOrProvider.Network)) {
+        //     throw new Error("Not a valid network");
+        //   }
+        //   provider = ethers.getDefaultProvider(NetworkOrProvider.Network);
+        // } else if(NetworkOrProvider.CustomProvider){
+        //   // web3
+        //   if (NetworkOrProvider.CustomProvider.version) {
+        //     provider = new ethers.providers.Web3Provider(
+        //       NetworkOrProvider.CustomProvider.currentProvider
+        //     );
+        //   }
+        // }
+        return NetworkOrProvider.CustomProvider;
     });
 }
 function decodeMessage(code) {
-    let codeString = `0x${code.substring(138)}`.replace(/0+$/, "");
-    // If the codeString is an odd number of characters, add a trailing 0
-    if (codeString.length % 2 === 1) {
-        codeString += "0";
+    let codeString;
+    if (code.substring(0, 2) === "0x") {
+        codeString = `0x${code.substring(138)}`.replace(/0+$/, "");
+        // If the codeString is an odd number of characters, add a trailing 0
+        if (codeString.length % 2 === 1) {
+            codeString += "0";
+        }
+        codeString = ethers_1.ethers.utils.toUtf8String(codeString);
     }
-    return ethers_1.ethers.utils.toUtf8String(codeString);
+    else {
+        codeString = code.substring(20);
+    }
+    return codeString;
 }
-function getCode(tx, provider) {
+function getCode(TransactionResponse, provider) {
     return __awaiter(this, void 0, void 0, function* () {
+        const chainId = (yield provider.getNetwork()).chainId;
         try {
+            let executeTransactionRequest = {};
+            if (network_1.OneTransactionResponse.indexOf(chainId) !== -1) {
+                //op
+                executeTransactionRequest =
+                    TransactionResponse;
+            }
+            else if (network_1.TwoTransactionResponse.indexOf(chainId) !== -1) {
+                //ethereum || arb
+                executeTransactionRequest = {
+                    to: TransactionResponse.to,
+                    data: TransactionResponse.data,
+                    value: TransactionResponse.value,
+                };
+            }
             // NOTE: The await is intentional in order for the catch to work
-            return yield provider.call(tx, tx.blockNumber);
+            return yield provider.call(executeTransactionRequest, TransactionResponse.blockNumber);
         }
         catch (err) {
-            return JSON.parse(err.responseText).error.data;
+            let responseCode = "";
+            if (network_1.EthereumNetworkId.indexOf(chainId) !== -1) {
+                responseCode =
+                    JSON.parse(err.responseText).error.data === undefined
+                        ? JSON.parse(err.responseText).error.message
+                        : JSON.parse(err.responseText).error.data;
+            }
+            else if (network_1.CompatibleNetworkId.indexOf(chainId) !== -1) {
+                responseCode = JSON.parse(err.error.body).error.message;
+            }
+            return responseCode;
         }
     });
+}
+function processResult(decodeMessage) {
+    let result;
+    if (decodeMessage === "") {
+        result = "An error occurred but no error message was given.";
+    }
+    else if (decodeMessage === "success") {
+        result = "success";
+    }
+    else {
+        result = decodeMessage;
+    }
+    return result;
 }
 //# sourceMappingURL=index.js.map
